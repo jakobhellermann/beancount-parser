@@ -178,15 +178,60 @@ fn fmt_posting<D: Display>(
 
     if let Some(cost) = &posting.cost {
         write!(f, " {{")?;
+
+        let mut needs_comma = false;
+
+        // Write date first if present
         if let Some(date) = &cost.date {
             write!(f, "{date}")?;
-            if cost.amount.is_some() {
+            needs_comma = true;
+        }
+
+        // Write label if present
+        if let Some(label) = &cost.label {
+            if needs_comma {
                 write!(f, ", ")?;
             }
+            write!(f, r#""{label}""#)?;
+            needs_comma = true;
         }
-        if let Some(amount) = &cost.amount {
-            write!(f, "{amount}")?;
+
+        // Write amounts
+        match (&cost.amount, &cost.total_amount) {
+            (Some(amount), Some(total)) => {
+                // Both per-unit and total: {350.00 # 3500.00 EUR}
+                if needs_comma {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{} # {}", amount.value, total)?;
+            }
+            (Some(amount), None) => {
+                // Per-unit only: {350.00 EUR}
+                if needs_comma {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{amount}")?;
+            }
+            (None, Some(total)) => {
+                // Total only: {# 3500.00 EUR}
+                if needs_comma {
+                    write!(f, ", ")?;
+                }
+                write!(f, "# {total}")?;
+            }
+            (None, None) => {
+                // Empty cost spec: {}
+            }
         }
+
+        // Write merge flag if present
+        if cost.merge {
+            if needs_comma || cost.amount.is_some() || cost.total_amount.is_some() {
+                write!(f, ", ")?;
+            }
+            write!(f, "*")?;
+        }
+
         write!(f, "}}")?;
     }
 

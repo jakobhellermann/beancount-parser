@@ -107,3 +107,152 @@ fn posting_display(#[case] input: &str, #[case] expected: &str) {
     let posting_line = lines[1].trim_start();
     assert_eq!(posting_line, expected);
 }
+
+#[rstest]
+#[case(
+    r#"2020-01-01 * ""
+  Assets:Cash 10 STOCK {# 500.00 USD}"#,
+    "Assets:Cash 10 STOCK {# 500 USD}"
+)]
+#[case(
+    r#"2020-01-01 * ""
+  Assets:Cash 10 STOCK {{500.00 USD}}"#,
+    "Assets:Cash 10 STOCK {# 500 USD}"
+)]
+#[case(
+    r#"2020-01-01 * ""
+  Assets:Cash 10 STOCK {50.00 # 500.00 USD}"#,
+    "Assets:Cash 10 STOCK {50 # 500 USD}"
+)]
+fn posting_display_total_cost(#[case] input: &str, #[case] expected: &str) {
+    let result = parse::<f64>(input).unwrap();
+    let directive = &result.directives[0];
+    let output = directive.to_string();
+    let lines: Vec<&str> = output.lines().collect();
+    let posting_line = lines[1].trim_start();
+    assert_eq!(posting_line, expected);
+}
+
+#[rstest]
+#[case(
+    r#"2020-01-01 * ""
+  Assets:Cash 10 STOCK {2022-01-01, # 500.00 USD}"#,
+    "Assets:Cash 10 STOCK {2022-01-01, # 500 USD}"
+)]
+#[case(
+    r#"2020-01-01 * ""
+  Assets:Cash 10 STOCK {# 500.00 USD, 2022-01-01}"#,
+    "Assets:Cash 10 STOCK {2022-01-01, # 500 USD}"
+)]
+#[case(
+    r#"2020-01-01 * ""
+  Assets:Cash 10 STOCK {2022-01-01, 50.00 # 500.00 USD}"#,
+    "Assets:Cash 10 STOCK {2022-01-01, 50 # 500 USD}"
+)]
+fn posting_display_total_cost_with_date(#[case] input: &str, #[case] expected: &str) {
+    let result = parse::<f64>(input).unwrap();
+    let directive = &result.directives[0];
+    let output = directive.to_string();
+    let lines: Vec<&str> = output.lines().collect();
+    let posting_line = lines[1].trim_start();
+    assert_eq!(posting_line, expected);
+}
+
+#[rstest]
+#[case(
+    r#"2020-01-01 * ""
+  Assets:Cash 10 STOCK {"lot-label", # 500.00 USD}"#,
+    r#"Assets:Cash 10 STOCK {"lot-label", # 500 USD}"#
+)]
+#[case(
+    r#"2020-01-01 * ""
+  Assets:Cash 10 STOCK {# 500.00 USD, "lot-label"}"#,
+    r#"Assets:Cash 10 STOCK {"lot-label", # 500 USD}"#
+)]
+#[case(
+    r#"2020-01-01 * ""
+  Assets:Cash 10 STOCK {"lot-label", 50.00 # 500.00 USD}"#,
+    r#"Assets:Cash 10 STOCK {"lot-label", 50 # 500 USD}"#
+)]
+#[case(
+    r#"2020-01-01 * ""
+  Assets:Cash 10 STOCK {2022-01-01, "lot-label", # 500.00 USD}"#,
+    r#"Assets:Cash 10 STOCK {2022-01-01, "lot-label", # 500 USD}"#
+)]
+fn posting_display_total_cost_with_label(#[case] input: &str, #[case] expected: &str) {
+    let result = parse::<f64>(input).unwrap();
+    let directive = &result.directives[0];
+    let output = directive.to_string();
+    let lines: Vec<&str> = output.lines().collect();
+    let posting_line = lines[1].trim_start();
+    assert_eq!(posting_line, expected);
+}
+
+#[rstest]
+#[case(
+    r#"2020-01-01 * ""
+  Assets:Cash 10 STOCK {# 500.00 USD, *}"#,
+    "Assets:Cash 10 STOCK {# 500 USD, *}"
+)]
+#[case(
+    r#"2020-01-01 * ""
+  Assets:Cash 10 STOCK {*, # 500.00 USD}"#,
+    "Assets:Cash 10 STOCK {# 500 USD, *}"
+)]
+#[case(
+    r#"2020-01-01 * ""
+  Assets:Cash 10 STOCK {50.00 # 500.00 USD, *}"#,
+    "Assets:Cash 10 STOCK {50 # 500 USD, *}"
+)]
+#[case(
+    r#"2020-01-01 * ""
+  Assets:Cash 10 STOCK {2022-01-01, "lot-label", 50.00 # 500.00 USD, *}"#,
+    r#"Assets:Cash 10 STOCK {2022-01-01, "lot-label", 50 # 500 USD, *}"#
+)]
+fn posting_display_total_cost_with_merge(#[case] input: &str, #[case] expected: &str) {
+    let result = parse::<f64>(input).unwrap();
+    let directive = &result.directives[0];
+    let output = directive.to_string();
+    let lines: Vec<&str> = output.lines().collect();
+    let posting_line = lines[1].trim_start();
+    assert_eq!(posting_line, expected);
+}
+
+#[rstest]
+#[case(
+    r#"2020-01-01 * "" "Purchase with total cost"
+  Assets:Cash 10 STOCK {# 500 USD}
+  Assets:Bank"#
+)]
+#[case(
+    r#"2020-01-01 * "" "Purchase with both costs"
+  Assets:Cash 10 STOCK {50 # 500 USD}
+  Assets:Bank"#
+)]
+#[case(
+    r#"2020-01-01 * "" "Total cost with date"
+  Assets:Cash 10 STOCK {2022-01-01, # 500 USD}
+  Assets:Bank"#
+)]
+#[case(
+    r#"2020-01-01 * "" "Total cost with label"
+  Assets:Cash 10 STOCK {"lot-label", # 500 USD}
+  Assets:Bank"#
+)]
+#[case(
+    r#"2020-01-01 * "" "Total cost with merge"
+  Assets:Cash 10 STOCK {# 500 USD, *}
+  Assets:Bank"#
+)]
+#[case(
+    r#"2020-01-01 * "" "Full cost spec"
+  Assets:Cash 10 STOCK {2022-01-01, "lot-label", 50 # 500 USD, *}
+  Assets:Bank"#
+)]
+fn display_roundtrip_total_cost(#[case] input: &str) {
+    let parsed = parse::<f64>(input).unwrap_or_else(|_| panic!("Failed to parse:\n  {}", input));
+    let directive = &parsed.directives[0];
+    let displayed = directive.to_string();
+
+    assert_eq!(input, displayed, "Round-trip failed");
+}
