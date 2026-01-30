@@ -16,7 +16,6 @@
 
 use std::{
     borrow::Borrow,
-    collections::HashMap,
     fmt::{Debug, Display, Formatter},
     str::FromStr,
     sync::Arc,
@@ -36,7 +35,7 @@ use crate::{amount, empty_line, end_of_line, string, Currency, Decimal, IResult,
 /// Metadata map
 ///
 /// See the [`metadata`](crate::metadata) module for an example
-pub type Map<D> = HashMap<Key, Value<D>>;
+pub type Map<D> = indexmap::IndexMap<Key, Value<D>>;
 
 /// Metadata key
 ///
@@ -115,7 +114,7 @@ impl<D> Value<D> {
 
 pub(crate) fn parse<D: Decimal>(input: Span<'_>) -> IResult<'_, Map<D>> {
     let mut iter = iterator(input, alt((entry.map(Some), empty_line.map(|()| None))));
-    let map: HashMap<_, _> = iter.by_ref().flatten().collect();
+    let map: Map<_> = iter.by_ref().flatten().collect();
     let (input, ()) = iter.finish()?;
     Ok((input, map))
 }
