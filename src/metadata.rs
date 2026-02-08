@@ -84,8 +84,20 @@ pub enum Value<D> {
     Number(D),
     /// A [`Currency`]
     Currency(Currency),
+    /// An [`Amount`](crate::Amount) (number and currency)
+    Amount(amount::Amount<D>),
 }
 
+impl<D: Display> Display for Value<D> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::String(value) => write!(f, r#""{value}""#),
+            Value::Number(value) => Display::fmt(value, f),
+            Value::Currency(value) => Display::fmt(value, f),
+            Value::Amount(value) => Display::fmt(value, f),
+        }
+    }
+}
 impl<D> Value<D> {
     /// Returns `Some` if the value is a `String` variant, `None` otherwise
     pub fn as_string(&self) -> Option<&str> {
@@ -110,6 +122,14 @@ impl<D> Value<D> {
             _ => None,
         }
     }
+
+    /// Returns `Some` if the value is an `Amount` variant, `None` otherwise
+    pub fn as_amount(&self) -> Option<&amount::Amount<D>> {
+        match self {
+            Value::Amount(a) => Some(a),
+            _ => None,
+        }
+    }
 }
 
 pub(crate) fn parse<D: Decimal>(input: Span<'_>) -> IResult<'_, Map<D>> {
@@ -126,6 +146,7 @@ fn entry<D: Decimal>(input: Span<'_>) -> IResult<'_, (Key, Value<D>)> {
     let (input, _) = space1(input)?;
     let (input, value) = alt((
         string.map(Value::String),
+        amount::parse.map(Value::Amount),
         amount::expression.map(Value::Number),
         amount::currency.map(Value::Currency),
     ))

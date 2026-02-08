@@ -413,6 +413,28 @@ fn should_parse_metadata_currency() {
 }
 
 #[rstest]
+fn should_parse_metadata_amount() {
+    let metadata = parse_single_directive("2023-05-27 *\n foo: 8.80 USD").metadata;
+    let Some(metadata::Value::Amount(amount)) = metadata.get("foo") else {
+        panic!("was not an amount: {metadata:?}");
+    };
+    assert_eq!(amount.value, 8.80);
+    assert_eq!(amount.currency.as_str(), "USD");
+}
+
+#[rstest]
+fn should_parse_posting_after_amount_metadata() {
+    let directive = parse_single_directive(
+        "2023-05-27 * \"payee\" \"narration\"\n  foreign_amount: 8.80 USD\n  Assets:Cash  -7.93 EUR",
+    );
+    let DirectiveContent::Transaction(transaction) = directive.content else {
+        panic!("was not a transaction");
+    };
+    assert_eq!(transaction.postings.len(), 1);
+    assert_eq!(transaction.postings[0].account.as_str(), "Assets:Cash");
+}
+
+#[rstest]
 fn should_reject_invalid_input(
     #[values(
         "2023-06-18 \"Hello\"",
