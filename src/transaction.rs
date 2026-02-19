@@ -8,8 +8,8 @@ use nom::{
     bytes::complete::{tag, take_while},
     character::complete::satisfy,
     character::complete::{char as char_tag, space0, space1},
-    combinator::{cut, iterator, map, opt, success, value},
-    sequence::{delimited, preceded, separated_pair, terminated},
+    combinator::{cut, iterator, map, opt, value},
+    sequence::{delimited, preceded, terminated},
     Parser,
 };
 
@@ -121,13 +121,31 @@ impl<D> Posting<D> {
 /// Cost of a posting
 ///
 /// It is the amount within `{` and `}`.
+///
+/// # Beancount CostSpec
+/// Beancount supports specifying both per-unit and total cost:
+/// - `{350.00 EUR}` - per-unit cost only (`amount`)
+/// - `{# 3500.00 EUR}` or `{{3500.00 EUR}}` - total cost only (`total_amount`)
+/// - `{502.12 # 9.95 USD}` - both per-unit and total cost (`amount` and `total_amount`)
+/// - `{350.00 EUR, 2026-01-15}` - with acquisition date
+/// - `{350.00 EUR, "lot-label"}` - with lot label
+/// - `{350.00 EUR, *}` - with merge flag for average cost booking
+///
+/// Note: While the type system allows `amount` and `total_amount` to have different
+/// currencies, Beancount does not support this and the parser should reject it.
 #[derive(Debug, Default, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Cost<D> {
-    /// Cost basis of the posting
+    /// Per-unit cost basis of the posting (backwards compatible)
     pub amount: Option<Amount<D>>,
+    /// Total cost basis (for `#` or `{{}}` syntax)
+    pub total_amount: Option<Amount<D>>,
     /// The date of this cost basis
     pub date: Option<Date>,
+    /// Lot label for identifying specific lots
+    pub label: Option<String>,
+    /// Merge flag for average cost booking
+    pub merge: bool,
 }
 
 /// Price of a posting
@@ -382,30 +400,219 @@ fn posting<D: Decimal>(input: Span<'_>) -> IResult<'_, Posting<D>> {
     ))
 }
 
+/// Parse a cost specification within
+/// - {350.00 EUR} - per-unit cost
+/// - {# 3500.00 EUR} or {{3500.00 EUR}} - total cost
+/// - {350.00 # 3500.00 EUR} - both per-unit and total
+/// - {350.00 EUR, 2026-01-15} - with date
+/// - {350.00 EUR, "label"} - with label
+/// - {350.00 EUR, *} - with merge flag
 fn cost<D: Decimal>(input: Span<'_>) -> IResult<'_, Cost<D>> {
-    let (input, _) = terminated(char_tag('{'), space0).parse(input)?;
-    let (input, (cost, date)) = alt((
-        map(
-            separated_pair(
-                amount::parse,
-                delimited(space0, char_tag(','), space0),
-                date::parse,
-            ),
-            |(a, d)| (Some(a), Some(d)),
-        ),
-        map(
-            separated_pair(
-                date::parse,
-                delimited(space0, char_tag(','), space0),
-                amount::parse,
-            ),
-            |(d, a)| (Some(a), Some(d)),
-        ),
-        map(amount::parse, |a| (Some(a), None)),
-        map(date::parse, |d| (None, Some(d))),
-        map(success(true), |_| (None, None)),
+    let double_brace = tag("{{").parse(input);
+
+    if double_brace.is_ok() {
+        let (input, _) = double_brace?;
+        let (input, _) = space0(input)?;
+        let (input, total) = amount::parse(input)?;
+        let (input, _) = space0(input)?;
+
+        let mut date = None;
+        let mut label = None;
+        let mut merge = false;
+        let mut input = input;
+
+        loop {
+            let (new_input, comma) = opt(delimited(space0, char_tag(','), space0)).parse(input)?;
+
+            if comma.is_none() {
+                break;
+            }
+
+            // A comma was found - the next component MUST exist
+            let (new_input, component) = parse_cost_component::<D>(new_input)?;
+
+            match component {
+                CostComponent::Date(d) => date = Some(d),
+                CostComponent::Label(l) => label = Some(l),
+                CostComponent::Merge => merge = true,
+                // Double-brace shouldn't have amount components
+                CostComponent::PerUnitAmount(_)
+                | CostComponent::TotalAmount(_)
+                | CostComponent::PerUnitAndTotal(_, _) => {
+                    return Err(nom::Err::Error(nom::error::Error::new(
+                        input,
+                        nom::error::ErrorKind::Tag,
+                    )));
+                }
+            }
+            input = new_input;
+        }
+
+        let (input, _) = space0(input)?;
+        let (input, _) = tag("}}")(input)?;
+
+        return Ok((
+            input,
+            Cost {
+                amount: None,
+                total_amount: Some(total),
+                date,
+                label,
+                merge,
+            },
+        ));
+    }
+
+    let (input, _) = char_tag('{')(input)?;
+    let (input, _) = space0(input)?;
+
+    let (input, components) = parse_cost_components(input)?;
+
+    let (input, _) = space0(input)?;
+    let (input, _) = char_tag('}')(input)?;
+
+    Ok((input, components))
+}
+
+/// Parse all cost components
+fn parse_cost_components<D: Decimal>(input: Span<'_>) -> IResult<'_, Cost<D>> {
+    let mut amount = None;
+    let mut total_amount = None;
+    let mut date = None;
+    let mut label = None;
+    let mut merge = false;
+
+    let (mut input, first) = opt(parse_cost_component).parse(input)?;
+
+    if let Some(component) = first {
+        match component {
+            CostComponent::PerUnitAmount(a) => amount = Some(a),
+            CostComponent::TotalAmount(a) => total_amount = Some(a),
+            CostComponent::PerUnitAndTotal(a, t) => {
+                amount = Some(a);
+                total_amount = Some(t);
+            }
+            CostComponent::Date(d) => date = Some(d),
+            CostComponent::Label(l) => label = Some(l),
+            CostComponent::Merge => merge = true,
+        }
+    } else {
+        // If first component is None, ensure there's no leading comma
+        let (_, peek_comma) = opt(delimited(space0, char_tag(','), space0)).parse(input)?;
+        if peek_comma.is_some() {
+            // Leading comma detected - fail
+            return Err(nom::Err::Error(nom::error::Error::new(
+                input,
+                nom::error::ErrorKind::Tag,
+            )));
+        }
+    }
+
+    // Parse remaining components separated by commas
+    loop {
+        let (new_input, comma) = opt(delimited(space0, char_tag(','), space0)).parse(input)?;
+
+        if comma.is_none() {
+            break;
+        }
+
+        // A comma was found - the next component MUST exist (no trailing/leading commas)
+        let (new_input, component) = parse_cost_component(new_input)?;
+
+        match component {
+            CostComponent::PerUnitAmount(a) => amount = Some(a),
+            CostComponent::TotalAmount(a) => total_amount = Some(a),
+            CostComponent::PerUnitAndTotal(a, t) => {
+                amount = Some(a);
+                total_amount = Some(t);
+            }
+            CostComponent::Date(d) => date = Some(d),
+            CostComponent::Label(l) => label = Some(l),
+            CostComponent::Merge => merge = true,
+        }
+        input = new_input;
+    }
+
+    Ok((
+        input,
+        Cost {
+            amount,
+            total_amount,
+            date,
+            label,
+            merge,
+        },
     ))
-    .parse(input)?;
-    let (input, _) = preceded(space0, char_tag('}')).parse(input)?;
-    Ok((input, Cost { amount: cost, date }))
+}
+
+enum CostComponent<D> {
+    PerUnitAmount(Amount<D>),
+    TotalAmount(Amount<D>),
+    PerUnitAndTotal(Amount<D>, Amount<D>),
+    Date(Date),
+    Label(String),
+    Merge,
+}
+fn parse_cost_component<D: Decimal>(input: Span<'_>) -> IResult<'_, CostComponent<D>> {
+    alt((
+        map(char_tag('*'), |_| CostComponent::Merge),
+        map(string, CostComponent::Label),
+        map(date::parse, CostComponent::Date),
+        parse_amount_component,
+    ))
+    .parse(input)
+}
+
+/// - `350.00 EUR` - per-unit cost only
+/// - `# 3500.00 EUR` - total cost only
+/// - `350.00 # 3500.00 EUR` - both per-unit and total (returns special marker)
+fn parse_amount_component<D: Decimal>(input: Span<'_>) -> IResult<'_, CostComponent<D>> {
+    // Check for # prefix (total cost only)
+    // Note: Beancount requires space after # to avoid ambiguity with tags
+    let hash = preceded(space0, char_tag('#')).parse(input);
+
+    if hash.is_ok() {
+        let (input, _) = hash?;
+        let (input, _) = space1(input)?; // Require at least one space after #
+        let (input, total) = amount::parse(input)?;
+        return Ok((input, CostComponent::TotalAmount(total)));
+    }
+
+    // Try to parse: number # number currency (both per-unit and total)
+    let both_result = parse_per_unit_and_total(input);
+    if let Ok((input, (per_unit, total))) = both_result {
+        // We have both! But CostComponent can only return one...
+        // We need a way to return both.
+        return Ok((input, CostComponent::PerUnitAndTotal(per_unit, total)));
+    }
+
+    // Otherwise, regular per-unit amount with currency
+    let (input, per_unit) = amount::parse(input)?;
+    Ok((input, CostComponent::PerUnitAmount(per_unit)))
+}
+
+/// Parse the special case: number # number currency
+/// Example: 502.12 # 9.95 USD
+fn parse_per_unit_and_total<D: Decimal>(input: Span<'_>) -> IResult<'_, (Amount<D>, Amount<D>)> {
+    let (input, per_unit_value) = amount::expression(input)?;
+    let (input, _) = space0(input)?;
+    let (input, _) = char_tag('#')(input)?;
+    let (input, _) = space0(input)?;
+    let (input, total_value) = amount::expression(input)?;
+    let (input, _) = space1(input)?;
+    let (input, currency) = amount::currency(input)?;
+
+    Ok((
+        input,
+        (
+            Amount {
+                value: per_unit_value,
+                currency: currency.clone(),
+            },
+            Amount {
+                value: total_value,
+                currency,
+            },
+        ),
+    ))
 }
