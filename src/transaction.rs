@@ -61,37 +61,53 @@ pub struct Transaction<D> {
 
 impl<D: Display> Display for Transaction<D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self.flag {
-            Some(flag) => write!(f, "{flag}")?,
-            None => write!(f, "txn")?,
-        }
-
-        if let Some(payee) = &self.payee {
-            write!(f, r#" "{payee}""#)?;
-        }
-
-        write!(f, r#" "{}""#, self.narration.as_deref().unwrap_or_default())?;
-
-        // Sort tags and links for deterministic output
-        let mut tags: Vec<_> = self.tags.iter().collect();
-        tags.sort();
-        for tag in tags {
-            write!(f, " #{tag}")?;
-        }
-
-        let mut links: Vec<_> = self.links.iter().collect();
-        links.sort();
-        for link in links {
-            write!(f, " ^{link}")?;
-        }
-
-        for posting in &self.postings {
-            writeln!(f)?;
-            fmt_posting(posting, "  ", f)?;
-        }
-
-        Ok(())
+        fmt_with_metadata(self, &metadata::Map::new(), f)
     }
+}
+
+/// Format a transaction with directive-level metadata.
+/// The metadata is output after the transaction header but before the postings,
+/// which is the correct beancount syntax for transaction-level metadata.
+pub(crate) fn fmt_with_metadata<D: Display>(
+    txn: &Transaction<D>,
+    directive_metadata: &metadata::Map<D>,
+    f: &mut Formatter<'_>,
+) -> std::fmt::Result {
+    match txn.flag {
+        Some(flag) => write!(f, "{flag}")?,
+        None => write!(f, "txn")?,
+    }
+
+    if let Some(payee) = &txn.payee {
+        write!(f, r#" "{payee}""#)?;
+    }
+
+    write!(f, r#" "{}""#, txn.narration.as_deref().unwrap_or_default())?;
+
+    // Sort tags and links for deterministic output
+    let mut tags: Vec<_> = txn.tags.iter().collect();
+    tags.sort();
+    for tag in tags {
+        write!(f, " #{tag}")?;
+    }
+
+    let mut links: Vec<_> = txn.links.iter().collect();
+    links.sort();
+    for link in links {
+        write!(f, " ^{link}")?;
+    }
+
+    // Output directive-level metadata before postings
+    for (key, value) in directive_metadata {
+        write!(f, "\n  {key}: {value}")?;
+    }
+
+    for posting in &txn.postings {
+        writeln!(f)?;
+        fmt_posting(posting, "  ", f)?;
+    }
+
+    Ok(())
 }
 
 /// A transaction posting

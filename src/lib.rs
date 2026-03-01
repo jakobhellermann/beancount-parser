@@ -362,13 +362,18 @@ impl<D: Display> Display for Directive<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&self.date, f)?;
         f.write_str(" ")?;
-        Display::fmt(&self.content, f)?;
 
-        for (key, value) in &self.metadata {
-            write!(f, "\n  {key}: {value}")?;
+        // For transactions, we need to output metadata between the header and postings
+        // to match beancount's syntax (metadata before postings = transaction-level metadata)
+        if let DirectiveContent::Transaction(txn) = &self.content {
+            transaction::fmt_with_metadata(txn, &self.metadata, f)
+        } else {
+            Display::fmt(&self.content, f)?;
+            for (key, value) in &self.metadata {
+                write!(f, "\n  {key}: {value}")?;
+            }
+            Ok(())
         }
-
-        Ok(())
     }
 }
 

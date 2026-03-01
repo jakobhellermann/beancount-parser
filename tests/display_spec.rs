@@ -256,3 +256,25 @@ fn display_roundtrip_total_cost(#[case] input: &str) {
 
     assert_eq!(input, displayed, "Round-trip failed");
 }
+
+#[rstest]
+#[case(
+    r#"2020-01-01 * "Payee" "Narration"
+  source_desc: "Original description"
+  Assets:Cash -50 USD
+  Expenses:Groceries"#
+)]
+#[case(
+    r#"2020-01-01 * "Payee" "Narration"
+  source_payee: "Original payee"
+  source_desc: "Original description"
+  Assets:Cash -50 USD
+  Expenses:Groceries"#
+)]
+fn display_roundtrip_directive_metadata(#[case] input: &str) {
+    let parsed = parse::<f64>(input).unwrap_or_else(|_| panic!("Failed to parse:\n  {}", input));
+    let directive = &parsed.directives[0];
+    let displayed = directive.to_string();
+
+    assert_eq!(input, displayed, "Round-trip failed");
+}

@@ -348,7 +348,7 @@ fn should_parse_cost_date(
 #[case("{ 1 EUR }", Some(1.0), None)]
 #[case("{1 EUR} @ 4 PLN", Some(1.0), None)]
 #[case("{{1 EUR}}", None, Some(1.0))]
-#[case("{# 1 EUR}", None, Some(1.0))]  // Space after # is required
+#[case("{# 1 EUR}", None, Some(1.0))] // Space after # is required
 #[case("{ 10.0 # 100.0 EUR}", Some(10.0), Some(100.0))]
 fn should_parse_cost_total(
     #[case] input: &str,
