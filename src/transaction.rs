@@ -193,69 +193,11 @@ fn fmt_posting<D: Display>(
     }
 
     if let Some(cost) = &posting.cost {
-        write!(f, " {{")?;
-
-        let mut needs_comma = false;
-
-        // Write date first if present
-        if let Some(date) = &cost.date {
-            write!(f, "{date}")?;
-            needs_comma = true;
-        }
-
-        // Write label if present
-        if let Some(label) = &cost.label {
-            if needs_comma {
-                write!(f, ", ")?;
-            }
-            write!(f, r#""{label}""#)?;
-            needs_comma = true;
-        }
-
-        // Write amounts
-        match (&cost.amount, &cost.total_amount) {
-            (Some(amount), Some(total)) => {
-                // Both per-unit and total: {350.00 # 3500.00 EUR}
-                if needs_comma {
-                    write!(f, ", ")?;
-                }
-                write!(f, "{} # {}", amount.value, total)?;
-            }
-            (Some(amount), None) => {
-                // Per-unit only: {350.00 EUR}
-                if needs_comma {
-                    write!(f, ", ")?;
-                }
-                write!(f, "{amount}")?;
-            }
-            (None, Some(total)) => {
-                // Total only: {# 3500.00 EUR}
-                if needs_comma {
-                    write!(f, ", ")?;
-                }
-                write!(f, "# {total}")?;
-            }
-            (None, None) => {
-                // Empty cost spec: {}
-            }
-        }
-
-        // Write merge flag if present
-        if cost.merge {
-            if needs_comma || cost.amount.is_some() || cost.total_amount.is_some() {
-                write!(f, ", ")?;
-            }
-            write!(f, "*")?;
-        }
-
-        write!(f, "}}")?;
+        write!(f, " {cost}")?;
     }
 
     if let Some(price) = &posting.price {
-        match price {
-            PostingPrice::Unit(amount) => write!(f, " @ {amount}")?,
-            PostingPrice::Total(amount) => write!(f, " @@ {amount}")?,
-        }
+        write!(f, " {price}")?;
     }
 
     for (key, value) in &posting.metadata {
@@ -295,6 +237,66 @@ pub struct Cost<D> {
     pub merge: bool,
 }
 
+impl<D: Display> Display for Cost<D> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{{")?;
+        let mut needs_comma = false;
+
+        // Write date first if present
+        if let Some(date) = &self.date {
+            write!(f, "{date}")?;
+            needs_comma = true;
+        }
+
+        // Write label if present
+        if let Some(label) = &self.label {
+            if needs_comma {
+                write!(f, ", ")?;
+            }
+            write!(f, r#""{label}""#)?;
+            needs_comma = true;
+        }
+
+        // Write amounts
+        match (&self.amount, &self.total_amount) {
+            (Some(amount), Some(total)) => {
+                // Both per-unit and total: {350.00 # 3500.00 EUR}
+                if needs_comma {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{} # {}", amount.value, total)?;
+            }
+            (Some(amount), None) => {
+                // Per-unit only: {350.00 EUR}
+                if needs_comma {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{amount}")?;
+            }
+            (None, Some(total)) => {
+                // Total only: {# 3500.00 EUR}
+                if needs_comma {
+                    write!(f, ", ")?;
+                }
+                write!(f, "# {total}")?;
+            }
+            (None, None) => {
+                // Empty cost spec: {}
+            }
+        }
+
+        // Write merge flag if present
+        if self.merge {
+            if needs_comma || self.amount.is_some() || self.total_amount.is_some() {
+                write!(f, ", ")?;
+            }
+            write!(f, "*")?;
+        }
+
+        write!(f, "}}")
+    }
+}
+
 /// Price of a posting
 ///
 /// It is the amount following the `@` or `@@` symbols
@@ -304,6 +306,15 @@ pub enum PostingPrice<D> {
     Unit(Amount<D>),
     /// Total cost (`@@`)
     Total(Amount<D>),
+}
+
+impl<D: Display> Display for PostingPrice<D> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PostingPrice::Unit(amount) => write!(f, "@ {} {}", amount.value, amount.currency),
+            PostingPrice::Total(amount) => write!(f, "@@ {} {}", amount.value, amount.currency),
+        }
+    }
 }
 
 /// Transaction tag
