@@ -85,6 +85,8 @@ pub enum Value<D> {
     Number(D),
     /// A [`Currency`]
     Currency(Currency),
+    /// An [`Amount`](crate::Amount) (number and currency)
+    Amount(amount::Amount<D>),
 }
 
 impl<D> Value<D> {
@@ -111,6 +113,14 @@ impl<D> Value<D> {
             _ => None,
         }
     }
+
+    /// Returns `Some` if the value is an `Amount` variant, `None` otherwise
+    pub fn as_amount(&self) -> Option<&amount::Amount<D>> {
+        match self {
+            Value::Amount(a) => Some(a),
+            _ => None,
+        }
+    }
 }
 
 pub(crate) fn parse<D: Decimal>(input: Span<'_>) -> IResult<'_, Map<D>> {
@@ -127,6 +137,7 @@ fn entry<D: Decimal>(input: Span<'_>) -> IResult<'_, (Key, Value<D>)> {
     let (input, _) = space1(input)?;
     let (input, value) = alt((
         string.map(Value::String),
+        amount::parse.map(Value::Amount),
         amount::expression.map(Value::Number),
         amount::currency.map(Value::Currency),
     ))
